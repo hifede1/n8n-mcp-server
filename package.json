@@ -1,19 +1,46 @@
 {
-  "name": "n8n-mcp-server",
+  "name": "@hifede1/n8n-mcp-server",
   "version": "1.0.0",
   "description": "MCP Server to install and manage n8n",
   "type": "module",
   "main": "build/index.js",
+  "bin": {
+    "n8n-mcp-server": "build/index.js"
+  },
+  "files": [
+    "build"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hifede1/n8n-mcp-server.git"
+  },
+  "homepage": "https://github.com/hifede1/n8n-mcp-server#readme",
+  "bugs": {
+    "url": "https://github.com/hifede1/n8n-mcp-server/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "n8n",
+    "automation",
+    "claude"
+  ],
+  "author": "Federico Pernice",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
   }
 }

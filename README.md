@@ -26,14 +26,29 @@ Servidor MCP en TypeScript para instalar y gestionar [n8n](https://n8n.io) desde
 
 ## Instalación
 
+### Vía npx (recomendada)
+
+Configuración del cliente MCP (p. ej. Claude Desktop, `~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "n8n-manager": {
+      "command": "npx",
+      "args": ["-y", "@hifede1/n8n-mcp-server"]
+    }
+  }
+}
+```
+
+### Local (desde el código)
+
 ```bash
 git clone https://github.com/hifede1/n8n-mcp-server.git
 cd n8n-mcp-server
 npm install
 npm run build
 ```
-
-Configuración del cliente MCP (p. ej. Claude Desktop, `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
