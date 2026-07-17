@@ -1,5 +1,5 @@
 {
-  "name": "@hifede1/n8n-mcp-server",
+  "name": "@hifede/n8n-mcp-server",
   "version": "1.0.0",
   "description": "MCP Server to install and manage n8n",
   "type": "module",

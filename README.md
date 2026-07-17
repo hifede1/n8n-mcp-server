@@ -35,7 +35,7 @@ Configuración del cliente MCP (p. ej. Claude Desktop, `~/Library/Application Su
   "mcpServers": {
     "n8n-manager": {
       "command": "npx",
-      "args": ["-y", "@hifede1/n8n-mcp-server"]
+      "args": ["-y", "@hifede/n8n-mcp-server"]
     }
   }
 }
