@@ -17,12 +17,12 @@ Servidor MCP en TypeScript para instalar y gestionar [n8n](https://n8n.io) desde
 
 | Tool | Qué hace |
 |---|---|
-| `listWorkflows` | Lista los workflows |
-| `getWorkflow` | Lee un workflow por id |
-| `createWorkflow` | Crea un workflow |
-| `activateWorkflow` / `deactivateWorkflow` | Activa / desactiva un workflow |
-| `listExecutions` | Lista ejecuciones |
-| `getExecution` | Lee una ejecución por id |
+| `n8n_list_workflows` | Lista los workflows |
+| `n8n_get_workflow` | Lee un workflow por id |
+| `n8n_create_workflow` | Crea un workflow |
+| `n8n_activate_workflow` / `n8n_deactivate_workflow` | Activa / desactiva un workflow |
+| `n8n_list_executions` | Lista ejecuciones |
+| `n8n_get_execution` | Lee una ejecución por id |
 
 ## Instalación
 
