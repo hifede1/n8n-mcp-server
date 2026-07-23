@@ -384,13 +384,13 @@
    DATOS — esto es lo único que se edita en una actualización normal.
    ========================================================================== */
 
-const LAST_AUDIT = '2026-07-23';
-const CLOSED_COUNT = 0;              // Auditoría inicial — código completo, verificación cero.
+const LAST_AUDIT = '2026-07-24';
+const CLOSED_COUNT = 1;              // N1 cerrada y verificada 2026-07-24 (PR #6): lo publicado, reconciliado.
 const REPO = 'hifede1/n8n-mcp-server';
 
 /* Estimación: talle S / M / L por pendiente (calibración heredada del taller). */
 const EST = {
-  'p-reconciliar':'S','p-smoke-proceso':'M','p-smoke-api':'M','p-ci':'M'
+  'p-smoke-proceso':'M','p-smoke-api':'M','p-ci':'M'
 };
 
 const DATA = [
@@ -430,19 +430,17 @@ const DATA = [
   {
     zona: 'Distribución — npm vivo, GitHub roto',
     bloques: [{
-      id: 'n03', titulo: 'Paquete npm + repo público', estado: 'curso',
+      id: 'n03', titulo: 'Paquete npm + repo público', estado: 'hecho',
       sesion: 'N1', talle: 'S', issue: 1, trat: 'directo',
       planteamiento: 'El paquete <code>@hifede/n8n-mcp-server@1.0.0</code> está VIVO en npm (verificado). Pero el repo público quedó ATRÁS: README y package.json de GitHub dicen <code>@hifede1</code> — un scope que NO existe en npm. <b>El npx documentado públicamente FALLA para cualquiera que lo siga.</b>',
-      hallazgo: 'El fix existe y es de Fede: commit local <code>20d444d</code> «fix: scope package to @hifede» — <b>SIN PUSHEAR</b> (main local ahead 1 de origin, verificado). Higiene extra: el ref local <code>origin/master</code> quedó stale apuntando a la historia vieja con <code>.obsidian</code> — que en GitHub fue PURGADA de verdad (SHA 1ec7a75 → 404, verificado hoy). La mina está desactivada en el remoto; el rastro local es cosmético.',
+      hallazgo: '<b>CERRADA N1 (2026-07-24, PR #6):</b> fix de scope pusheado (GitHub==npm), README con los nombres reales (snake_case), <b>smoke de npx VERDE</b> — el server publicado responde el handshake y lista los 11 tools. Hallazgo de campo: caché stale de npx puede dar «command not found» tras un cambio de scope (documentado en el PR). Ref stale purgado.',
       metodo: [
         'Pushear el fix de scope (es commit del dueño, ya autorado).',
         'Alinear los nombres de tools del README con los reales (snake_case).',
         'Smoke del camino público: npx -y @hifede/n8n-mcp-server arranca y lista los 11 tools.',
         'git remote prune origin (limpia el ref stale local).'
       ],
-      pend: [
-        {id:'p-reconciliar', t:'Repo público reconciliado con la realidad de npm + smoke de npx', v:'push del fix + README con nombres reales + npx arranca listando 11 tools + ref stale purgado'}
-      ],
+      pend: [],
       refs: [], prereq: []
     }]
   },
@@ -466,16 +464,13 @@ const DATA = [
 ];
 
 const DEBT = [
-  {t:'El install público está ROTO', d:'El README de GitHub instruye <code>npx -y @hifede1/n8n-mcp-server</code> — ese paquete NO existe en npm (el real es <code>@hifede</code>). Cualquiera que siga el README público fracasa. El fix es un commit local del dueño sin pushear (<code>20d444d</code>). Se cierra en N1 con un push.', sev:'stop'},
   {t:'Deuda de verificación TOTAL: cero corridas, cero tests', d:'Los 11 tools están escritos y tipados pero <b>nadie los vio funcionar</b>: ni smoke de proceso, ni corrida de API contra n8n vivo, ni tests unitarios. El único gate (tsc) pasa pero solo prueba que compila. N2 y N3 son la batería.', sev:'stop'},
-  {t:'Drift doc↔código: los nombres de tools del README no existen', d:'README promete camelCase (<code>listWorkflows</code>); el código registra snake_case (<code>n8n_list_workflows</code>). Fix de doc en N1.', sev:'warn'},
   {t:'Sin CI', d:'El gate corre a mano. Un PR que rompa el build entra sin alarma. N4.', sev:'warn'},
   {t:'Sin ficha en el taller', d:'n8n-mcp-server no tiene plano en <code>fichas/</code> — nació ANTES del método (fue la lección fundacional del publicador). El contrato de esta auditoría es el README + el código. Si batuta va a dirigir esta obra alguna vez, necesita ficha firmada con la línea de 011 — decisión del dueño, no urgente.', sev:'warn'},
   {t:'PID en memoria: el huérfano posible', d:'Si el server MCP se reinicia con n8n corriendo, el PID se pierde y <code>n8n_stop</code> queda ciego (proceso huérfano en 5678). Borde a ejercitar en N2; el fix (pidfile o descubrimiento por puerto) se decide con la evidencia.', sev:'warn'}
 ];
 
 const PLAN = [
-  {s:'N1', o:'Reconciliar lo publicado: push del fix de scope + README real + smoke npx', b:'n03', issue:1, talle:'S', trat:'directo', pre:'— (arranca ya; el fix ya existe, es del dueño)'},
   {s:'N2', o:'Smoke E2E de proceso: los 4 tools contra n8n real + bordes', b:'n01', issue:2, talle:'M', trat:'directo', pre:'N1 (#1)'},
   {s:'N3', o:'Los 7 tools de API contra n8n vivo + ramas de error', b:'n02', issue:3, talle:'M', trat:'directo', pre:'N2 (#2)'},
   {s:'N4', o:'CI mínimo + decisión de tests', b:'n04', issue:4, talle:'M', trat:'directo', pre:'N1 (#1)'}
@@ -522,18 +517,18 @@ const TESTS = {
   gates: [
     {n:'npm ci + tsc build', cmd:'npm ci && npm run build', est:'verde', nota:'<b>VERDE — corrido 2026-07-23 en local</b> (EXIT 0, build/ generado). Es el único gate que existe, y corre a mano.'},
     {n:'CI (GitHub Actions)', cmd:'.github/workflows/ — no existe', est:'rojo', nota:'Sin CI: un PR que rompa el build entra sin alarma. Se crea en N4.'},
-    {n:'Smoke del camino público', cmd:'npx -y @hifede/n8n-mcp-server', est:'rojo', nota:'Jamás corrido — y el README público apunta al scope inexistente @hifede1. N1.'}
+    {n:'Smoke del camino público', cmd:'npx -y @hifede/n8n-mcp-server', est:'verde', nota:'<b>VERDE desde N1 (2026-07-24):</b> handshake OK, tools/list devuelve los 11. Gotcha documentado: caché stale de npx → «command not found»; limpiar ~/.npm/_npx.'}
   ],
   flows: [
     {id:'f1', t:'n8n se instala y arranca desde un cliente MCP', pill:'rojo', test:'Sin corrida. Se clava en N2 (smoke E2E + bordes).'},
     {id:'f2', t:'Un workflow se gestiona por API', pill:'rojo', test:'Sin corrida contra n8n vivo. Se clava en N3 (7 tools + ramas de error).'},
-    {id:'f3', t:'Un usuario instala por npx desde el README', pill:'rojo', test:'ROTO hoy además de no corrido: el README público apunta a @hifede1 (no existe). N1.'},
+    {id:'f3', t:'Un usuario instala por npx desde el README', pill:'verde', test:'VERDE desde N1: GitHub==npm, README con nombres reales, smoke de npx con handshake + 11 tools.'},
     {id:'f4', t:'El build protege el paquete', pill:'verde', test:'npm ci + tsc corridos HOY en local, EXIT 0. Falta que lo corra un CI (N4).'}
   ],
   contrato: [
     {b:'n01', bt:'Tools de proceso', total:1, clavados:0, nota:'Promesa del README: los 4 tools funcionan E2E. Clavable con el smoke de N2 (incl. bordes: doble start, huérfano).'},
     {b:'n02', bt:'Tools de API', total:1, clavados:0, nota:'Promesa del README: los 7 tools contra n8n vivo. Clavable en N3 con API key real y ramas de error.'},
-    {b:'n03', bt:'Distribución', total:1, clavados:0, nota:'Promesa del README: el npx documentado funciona. HOY ROTO (scope viejo en el repo público). N1.'},
+    {b:'n03', bt:'Distribución', total:1, clavados:1, nota:'VERDE desde N1: npx del README verificado con smoke real (handshake + 11 tools).'},
     {b:'n04', bt:'Calidad', total:1, clavados:0, nota:'Gate automatizado corriendo por PR. Hoy el único gate es manual.'}
   ]
 };
@@ -541,6 +536,7 @@ const TESTS = {
 const REFS = [];
 
 const CHANGELOG = [
+  {f:'2026-07-24', t:'✅ N1 cerrada: lo publicado dice la verdad', d:'Re-auditoría tras el <b>PR #6</b> (mergeado por Fede). El fix de scope del dueño (<code>1e1a994</code>) quedó pusheado — <b>GitHub y npm por fin dicen lo mismo</b> y el npx del README público funciona (smoke real: handshake + los 11 tools listados). README con los nombres reales de los tools (snake_case). Higiene completa: ref stale <code>origin/master</code> purgado, rama de auditoría remota borrada. Hallazgo de campo documentado: la caché de npx puede arrastrar una resolución rota tras un cambio de scope. p-reconciliar → verde (CLOSED_COUNT 0→1). Quedan desbloqueadas <b>N2</b> (smoke de proceso) y <b>N4</b> (CI).'},
   {f:'2026-07-23', t:'🏁 Auditoría inicial — código completo, verificación cero, el npx público roto', d:'Primera auditoría de <code>n8n-mcp-server</code>, disparada por el worklist de <b>cartera</b> (último VENCIDO de la flota). Es el primer proyecto de CÓDIGO real del taller auditado: TypeScript, 515 líneas de src, 11 tools MCP. <b>Lo bueno (verificado):</b> el gate compila (npm ci + tsc EXIT 0 hoy), el código es prolijo y tipado, la API key viaja por parámetro (cero secretos en repo), el paquete npm está VIVO (<code>@hifede/n8n-mcp-server@1.0.0</code>) y la mina histórica de <code>.obsidian</code> —la que fundó la ficha del publicador— fue PURGADA de verdad del remoto (SHA viejo → 404, verificado por API). <b>Lo roto:</b> el README público instruye <code>npx @hifede1/…</code>, scope que NO existe — el fix es un commit local del dueño sin pushear (<code>20d444d</code>, main ahead 1). <b>Lo ciego:</b> cero corridas de los 11 tools, cero tests, sin CI, y drift de nombres README↔código (camelCase vs snake_case). Plan: <b>N1</b> reconciliar lo publicado (S) → <b>N2</b> smoke de proceso → <b>N3</b> API contra n8n vivo → <b>N4</b> CI mínimo. Issues #1–#4. Calibración heredada del taller: S/M/L · directo · <b>modo orquestado</b>. Sin ficha en el taller (nació antes del método) — registrado como deuda, decisión del dueño.'}
 ];
 
