@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "proyecto": "n8n-mcp-server",
-  "last_audit": "2026-07-23",
-  "closed_count": 0,
+  "last_audit": "2026-07-24",
+  "closed_count": 1,
   "calibracion": {
     "unidad": "sesiones (~2-4h), talla S/M/L",
     "actores": "Fede + una máquina (esta)",
@@ -17,7 +17,11 @@
       "estado": "curso",
       "resumen": "4 tools prolijos y tipados; cero corridas. Edge case: PID en memoria → huérfano posible si el server MCP se reinicia.",
       "pendientes": [
-        {"id": "p-smoke-proceso", "txt": "Smoke E2E de los 4 tools de proceso + bordes", "sesion": "N2"}
+        {
+          "id": "p-smoke-proceso",
+          "txt": "Smoke E2E de los 4 tools de proceso + bordes",
+          "sesion": "N2"
+        }
       ]
     },
     {
@@ -27,18 +31,20 @@
       "estado": "curso",
       "resumen": "7 tools sobre la API REST; API key por parámetro (cero secretos, verificado). Drift: README promete camelCase, el código registra snake_case. Cero corridas contra n8n vivo.",
       "pendientes": [
-        {"id": "p-smoke-api", "txt": "Los 7 tools de API contra n8n vivo + ramas de error", "sesion": "N3"}
+        {
+          "id": "p-smoke-api",
+          "txt": "Los 7 tools de API contra n8n vivo + ramas de error",
+          "sesion": "N3"
+        }
       ]
     },
     {
       "id": "n03",
       "nombre": "Paquete npm + repo público",
       "zona": "Distribución — npm vivo, GitHub roto",
-      "estado": "curso",
-      "resumen": "npm VIVO (@hifede/n8n-mcp-server@1.0.0, verificado). El repo público dice @hifede1 (scope inexistente): el npx documentado FALLA. Fix del dueño local sin pushear (20d444d, main ahead 1). Mina .obsidian purgada del remoto (SHA→404 verificado).",
-      "pendientes": [
-        {"id": "p-reconciliar", "txt": "Repo público reconciliado con npm + smoke de npx + prune del ref stale", "sesion": "N1"}
-      ]
+      "estado": "hecho",
+      "resumen": "CERRADA N1 (PR #6): GitHub==npm, README con nombres reales, smoke npx verde (11 tools), ref stale purgado.",
+      "pendientes": []
     },
     {
       "id": "n04",
@@ -47,23 +53,54 @@
       "estado": "curso",
       "resumen": "npm ci + tsc VERDE (corrido 2026-07-23). Sin CI, sin tests, sin lint.",
       "pendientes": [
-        {"id": "p-ci", "txt": "CI mínimo verde en GitHub Actions + decisión de tests registrada", "sesion": "N4"}
+        {
+          "id": "p-ci",
+          "txt": "CI mínimo verde en GitHub Actions + decisión de tests registrada",
+          "sesion": "N4"
+        }
       ]
     }
   ],
   "plan": [
-    {"sesion": "N1", "titulo": "Reconciliar lo publicado: push del fix de scope + README real + smoke npx", "estimacion": 0.5, "deps": [], "cierra": ["p-reconciliar"]},
-    {"sesion": "N2", "titulo": "Smoke E2E de proceso: los 4 tools contra n8n real + bordes", "estimacion": 1, "deps": ["N1"], "cierra": ["p-smoke-proceso"]},
-    {"sesion": "N3", "titulo": "Los 7 tools de API contra n8n vivo + ramas de error", "estimacion": 1, "deps": ["N2"], "cierra": ["p-smoke-api"]},
-    {"sesion": "N4", "titulo": "CI mínimo + decisión de tests", "estimacion": 1, "deps": ["N1"], "cierra": ["p-ci"]}
+    {
+      "sesion": "N2",
+      "titulo": "Smoke E2E de proceso: los 4 tools contra n8n real + bordes",
+      "estimacion": 1,
+      "deps": [
+        "N1"
+      ],
+      "cierra": [
+        "p-smoke-proceso"
+      ]
+    },
+    {
+      "sesion": "N3",
+      "titulo": "Los 7 tools de API contra n8n vivo + ramas de error",
+      "estimacion": 1,
+      "deps": [
+        "N2"
+      ],
+      "cierra": [
+        "p-smoke-api"
+      ]
+    },
+    {
+      "sesion": "N4",
+      "titulo": "CI mínimo + decisión de tests",
+      "estimacion": 1,
+      "deps": [
+        "N1"
+      ],
+      "cierra": [
+        "p-ci"
+      ]
+    }
   ],
   "decisiones_pendientes": [],
   "referencias": [],
   "referencias_faltantes": [],
   "deuda": [
-    "El install público está ROTO: README de GitHub apunta a @hifede1 (inexistente en npm) — fix local sin pushear",
     "Deuda de verificación TOTAL: cero corridas de los 11 tools, cero tests",
-    "Drift doc↔código: nombres de tools del README (camelCase) vs reales (snake_case)",
     "Sin CI: el único gate (tsc) corre a mano",
     "Sin ficha en el taller: nació antes del método — si batuta lo dirige, necesita plano firmado (decisión del dueño)",
     "PID en memoria: proceso huérfano posible si el server MCP se reinicia"
