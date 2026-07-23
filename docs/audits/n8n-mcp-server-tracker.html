@@ -1,0 +1,1082 @@
+<!--
+  ============================================================================
+  TRACKER VIVO — n8n-mcp-server
+  ============================================================================
+  URL del artifact: https://claude.ai/code/artifact/f00a1e70-a41f-4835-a48a-66cebe9a611d
+  ⚠️ REDEPLOY SIEMPRE A ESA MISMA URL (parámetro `url` del tool Artifact).
+     URL nueva = tracker roto: el usuario pierde sus ticks de localStorage.
+  Fuente: docs/audits/n8n-mcp-server-tracker.html
+
+  PROTOCOLO DE ACTUALIZACIÓN (para cualquier sesión futura)
+  --------------------------------------------------------
+  1. Los DATOS viven en las constantes JS de abajo (LAST_AUDIT, DATA, DEBT, EST,
+     PLAN, CHANGELOG, CLOSED_COUNT, DECISIONS, DECISION_PENDS, TESTS, REFS).
+     La lógica de render NO se toca en una actualización normal.
+  2. Los ticks viven en localStorage con IDs ESTABLES. JAMÁS renombrar un id:
+     renombrarlo pierde el tick del usuario.
+     Semántica: ÁMBAR = marcado por el usuario, sin verificar.
+                VERDE = cerrado y verificado en re-auditoría.
+  3. Al re-auditar: re-verificar EN CÓDIGO los ámbar (jamás confiar en el tick),
+     borrar de DATA/EST/PLAN los confirmados, sumar a CLOSED_COUNT, recalcular
+     estados, entrada fechada en CHANGELOG, actualizar TESTS y REFS.
+  4. Redeploy A LA MISMA URL (parámetro `url` del tool Artifact). URL nueva =
+     tracker roto.
+  5. Commit en rama + PR. Nunca directo a main.
+  6. Validar el JS con `node --check` antes de cada deploy.
+
+  MODO ORQUESTADO ACTIVO: la cola vive en GitHub Issues (#1–#4). El equivalente
+  del ámbar es el PR esperando firma humana. Al mergear con CI verde, el ítem
+  pasa directo a verde.
+  ============================================================================
+-->
+<title>n8n-mcp-server · tracker de obra</title>
+
+<style>
+  :root {
+    color-scheme: light;
+    --ground:      #F5F6F9;
+    --surface:     #FFFFFF;
+    --surface-2:   #EEF0F5;
+    --ink:         #191B22;
+    --ink-soft:    #565A6B;
+    --ink-faint:   #8E93A5;
+    --rule:        #DDE0EA;
+    --accent:      #4C4FBF;
+    --accent-soft: #ECEDFB;
+    --ok:          #1F7A52;
+    --ok-soft:     #E4F2EB;
+    --warn:        #A96A05;
+    --warn-soft:   #FBF0DC;
+    --stop:        #A93226;
+    --stop-soft:   #FAE7E4;
+    --idle:        #6B7185;
+    --idle-soft:   #E8EAF0;
+
+    --f-display: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --f-body:    ui-sans-serif, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    --f-mono:    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+    --r: 7px;
+    --sp: 1rem;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --ground:      #131519;
+      --surface:     #1B1E25;
+      --surface-2:   #232733;
+      --ink:         #E7E9F0;
+      --ink-soft:    #A6ABBD;
+      --ink-faint:   #757B90;
+      --rule:        #2E3340;
+      --accent:      #9598F0;
+      --accent-soft: #262844;
+      --ok:          #5FC494;
+      --ok-soft:     #17301F;
+      --warn:        #E0AB57;
+      --warn-soft:   #33260F;
+      --stop:        #EC8478;
+      --stop-soft:   #341A18;
+      --idle:        #8A90A6;
+      --idle-soft:   #23262F;
+    }
+  }
+
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ground:#F5F6F9; --surface:#FFFFFF; --surface-2:#EEF0F5;
+    --ink:#191B22; --ink-soft:#565A6B; --ink-faint:#8E93A5; --rule:#DDE0EA;
+    --accent:#4C4FBF; --accent-soft:#ECEDFB;
+    --ok:#1F7A52; --ok-soft:#E4F2EB; --warn:#A96A05; --warn-soft:#FBF0DC;
+    --stop:#A93226; --stop-soft:#FAE7E4; --idle:#6B7185; --idle-soft:#E8EAF0;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:#131519; --surface:#1B1E25; --surface-2:#232733;
+    --ink:#E7E9F0; --ink-soft:#A6ABBD; --ink-faint:#757B90; --rule:#2E3340;
+    --accent:#9598F0; --accent-soft:#262844;
+    --ok:#5FC494; --ok-soft:#17301F; --warn:#E0AB57; --warn-soft:#33260F;
+    --stop:#EC8478; --stop-soft:#341A18; --idle:#8A90A6; --idle-soft:#23262F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 1.25rem 5rem; }
+
+  /* ---------- cabecera ---------- */
+  header.top {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+    padding: 1.6rem 0 0;
+    margin-bottom: 1.75rem;
+  }
+  .brand { display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; }
+  .brand h1 {
+    font-family: var(--f-display);
+    font-size: 1.85rem; font-weight: 600; margin: 0; letter-spacing: -.015em;
+  }
+  .brand .sub {
+    font-family: var(--f-mono); font-size: .72rem; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  .stamp {
+    margin: .35rem 0 1.1rem; color: var(--ink-soft); font-size: .86rem;
+  }
+  .stamp b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* ---------- tira de resumen ---------- */
+  .strip {
+    display: grid; gap: .75rem; margin-bottom: 1.35rem;
+    grid-template-columns: repeat(auto-fit, minmax(146px, 1fr));
+  }
+  .stat {
+    background: var(--surface-2); border: 1px solid var(--rule);
+    border-radius: var(--r); padding: .65rem .8rem;
+  }
+  .stat .n {
+    font-family: var(--f-mono); font-size: 1.45rem; font-weight: 600;
+    font-variant-numeric: tabular-nums; line-height: 1.1; display: block;
+  }
+  .stat .l {
+    font-size: .71rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--ink-faint); margin-top: .15rem; display: block;
+  }
+  .stat.is-stop .n { color: var(--stop); }
+  .stat.is-warn .n { color: var(--warn); }
+  .stat.is-ok   .n { color: var(--ok); }
+
+  .bar {
+    height: 7px; border-radius: 99px; background: var(--surface-2);
+    overflow: hidden; display: flex; margin-bottom: 1.4rem;
+    border: 1px solid var(--rule);
+  }
+  .bar i { display: block; height: 100%; }
+  .bar .g { background: var(--ok); }
+  .bar .a { background: var(--warn); }
+
+  /* ---------- tabs ---------- */
+  nav.tabs {
+    display: flex; gap: .15rem; overflow-x: auto; border-bottom: 1px solid var(--rule);
+    margin: 0 -1.25rem; padding: 0 1.25rem;
+  }
+  nav.tabs button {
+    appearance: none; background: none; border: 0; cursor: pointer;
+    font-family: inherit; font-size: .87rem; color: var(--ink-soft);
+    padding: .6rem .8rem; border-bottom: 2px solid transparent;
+    white-space: nowrap; margin-bottom: -1px;
+  }
+  nav.tabs button:hover { color: var(--ink); }
+  nav.tabs button[aria-selected="true"] {
+    color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  }
+  nav.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  /* ---------- secciones ---------- */
+  .panel { display: none; padding-top: 1.6rem; }
+  .panel.on { display: block; }
+
+  h2.sec {
+    font-family: var(--f-display); font-size: 1.15rem; font-weight: 600;
+    margin: 2rem 0 .2rem; text-wrap: balance;
+  }
+  h2.sec:first-child { margin-top: 0; }
+  .sec-note { color: var(--ink-soft); font-size: .88rem; margin: 0 0 1rem; max-width: 68ch; }
+
+  .zone-label {
+    font-family: var(--f-mono); font-size: .68rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--ink-faint);
+    border-top: 1px solid var(--rule); padding-top: .7rem; margin: 1.9rem 0 .85rem;
+  }
+
+  .grid { display: grid; gap: .8rem; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: var(--r); padding: .9rem .95rem; cursor: pointer;
+    display: flex; flex-direction: column; gap: .5rem; text-align: left;
+    font: inherit; color: inherit; position: relative;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card h3 { font-size: .96rem; margin: 0; font-weight: 600; text-wrap: balance; }
+  .card .meta { font-size: .78rem; color: var(--ink-soft); display: flex; gap: .5rem; flex-wrap: wrap; }
+  .card .next { font-size: .8rem; color: var(--ink-soft); border-top: 1px dashed var(--rule); padding-top: .5rem; }
+  .card .next b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- pills ---------- */
+  .pill {
+    display: inline-flex; align-items: center; gap: .3rem;
+    font-size: .7rem; font-weight: 600; letter-spacing: .03em;
+    padding: .13rem .48rem; border-radius: 99px; white-space: nowrap;
+  }
+  .pill.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.stop { background: var(--stop-soft); color: var(--stop); }
+  .pill.idle { background: var(--idle-soft); color: var(--idle); }
+  .pill.acc  { background: var(--accent-soft); color: var(--accent); }
+
+  .talle {
+    font-family: var(--f-mono); font-size: .68rem; font-weight: 700;
+    border: 1px solid var(--rule); border-radius: 4px; padding: 0 .3rem; color: var(--ink-soft);
+  }
+
+  /* ---------- ficha (dialog) ---------- */
+  dialog {
+    border: 1px solid var(--rule); border-radius: 10px; padding: 0;
+    background: var(--surface); color: var(--ink);
+    max-width: 780px; width: calc(100% - 2rem); max-height: 88vh;
+  }
+  dialog::backdrop { background: rgba(10,11,15,.55); }
+  .fx { padding: 1.4rem 1.5rem 1.6rem; overflow-y: auto; max-height: 88vh; }
+  .fx h3 { font-family: var(--f-display); font-size: 1.3rem; margin: 0 0 .3rem; text-wrap: balance; }
+  .fx .fx-meta { display: flex; gap: .45rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+  .fx h4 {
+    font-size: .74rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-faint); margin: 1.4rem 0 .4rem;
+  }
+  .fx p, .fx li { font-size: .9rem; }
+  .fx p { margin: .4rem 0; max-width: 66ch; }
+  .fx ol, .fx ul { margin: .4rem 0; padding-left: 1.2rem; }
+  .fx li { margin: .25rem 0; }
+  .fx code {
+    font-family: var(--f-mono); font-size: .82em;
+    background: var(--surface-2); padding: .08em .34em; border-radius: 4px;
+  }
+  .fx pre {
+    font-family: var(--f-mono); font-size: .8rem; background: var(--surface-2);
+    border: 1px solid var(--rule); border-radius: var(--r);
+    padding: .7rem .8rem; overflow-x: auto;
+  }
+  .fx-close {
+    position: sticky; top: 0; float: right; appearance: none; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--rule); color: var(--ink-soft);
+    border-radius: 99px; width: 28px; height: 28px; font-size: 1rem; line-height: 1;
+  }
+  .fx-close:hover { color: var(--ink); }
+
+  .crit { list-style: none; padding: 0; margin: .5rem 0; }
+  .crit li {
+    display: flex; gap: .55rem; align-items: flex-start;
+    padding: .45rem .55rem; border: 1px solid var(--rule);
+    border-radius: var(--r); margin-bottom: .35rem; background: var(--surface);
+  }
+  .crit li.amber { background: var(--warn-soft); border-color: var(--warn); }
+  .crit li.green { background: var(--ok-soft); border-color: var(--ok); }
+  .crit input { margin-top: .28rem; accent-color: var(--accent); cursor: pointer; }
+  .crit label { font-size: .875rem; cursor: pointer; flex: 1; }
+  .crit .verif { display: block; color: var(--ink-soft); font-size: .8rem; margin-top: .15rem; }
+
+  .btn {
+    appearance: none; font: inherit; font-size: .84rem; font-weight: 600;
+    background: var(--accent); color: #fff; border: 0; border-radius: var(--r);
+    padding: .5rem .85rem; cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1.3rem; }
+
+  /* ---------- tablas ---------- */
+  .tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--r); }
+  table { border-collapse: collapse; width: 100%; font-size: .855rem; min-width: 560px; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--ink-faint); font-weight: 600; background: var(--surface-2);
+  }
+  tr:last-child td { border-bottom: 0; }
+  td code { font-family: var(--f-mono); font-size: .82em; }
+
+  /* ---------- mapa ---------- */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .fnode {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r);
+    padding: .7rem .85rem; cursor: pointer; font: inherit; color: inherit; text-align: left;
+    display: flex; align-items: center; gap: .6rem; justify-content: space-between;
+  }
+  .fnode:hover { border-color: var(--accent); }
+  .fnode:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .fnode .fn-t { font-weight: 600; font-size: .92rem; }
+  .fedge {
+    margin: 0 0 0 1.4rem; padding: .4rem 0 .4rem 1.1rem;
+    border-left: 2px solid var(--rule); font-size: .8rem; color: var(--ink-soft);
+  }
+  .fedge .trig { font-family: var(--f-mono); font-size: .74rem; }
+
+  /* ---------- filtros namespaced ---------- */
+  .filters { display: flex; gap: .35rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .dchip, .tchip, .rchip {
+    appearance: none; font: inherit; font-size: .78rem; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--rule); color: var(--ink-soft);
+    border-radius: 99px; padding: .22rem .7rem;
+  }
+  .dchip[aria-pressed="true"], .tchip[aria-pressed="true"], .rchip[aria-pressed="true"] {
+    background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600;
+  }
+
+  .ro {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r);
+    padding: .85rem .95rem; margin-bottom: .65rem;
+  }
+  .ro h3 { font-size: .95rem; margin: 0 0 .3rem; font-weight: 600; }
+  .ro .ro-meta { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
+  .ro p { margin: .3rem 0; font-size: .87rem; color: var(--ink-soft); max-width: 70ch; }
+  .ro p.strong { color: var(--ink); }
+  .ro details { margin-top: .5rem; }
+  .ro summary { cursor: pointer; font-size: .82rem; color: var(--accent); }
+  .ro summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 1.6rem; transform: translateX(-50%);
+    background: var(--ink); color: var(--ground); font-size: .84rem; font-weight: 600;
+    padding: .55rem 1rem; border-radius: 99px; opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  .toast.on { opacity: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>cartera</h1>
+      <span class="sub">tracker de obra · v0 bootstrap</span>
+    </div>
+    <p class="stamp">
+      Última auditoría <b id="stamp-date"></b> · modo <b>orquestado</b> ·
+      ejecutor <b>hifede1</b> · cola en <b>GitHub Issues #5–#13</b>
+    </p>
+    <div class="strip" id="strip"></div>
+    <div class="bar" id="bar"></div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel" id="p-tablero" role="tabpanel"></section>
+  <section class="panel" id="p-plan" role="tabpanel"></section>
+  <section class="panel" id="p-mapa" role="tabpanel"></section>
+  <section class="panel" id="p-stack" role="tabpanel"></section>
+  <section class="panel" id="p-decisiones" role="tabpanel"></section>
+  <section class="panel" id="p-tests" role="tabpanel"></section>
+  <section class="panel" id="p-refs" role="tabpanel"></section>
+</main>
+
+<dialog id="fx"><div class="fx" id="fx-body"></div></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==========================================================================
+   DATOS — esto es lo único que se edita en una actualización normal.
+   ========================================================================== */
+
+const LAST_AUDIT = '2026-07-23';
+const CLOSED_COUNT = 0;              // Auditoría inicial — código completo, verificación cero.
+const REPO = 'hifede1/n8n-mcp-server';
+
+/* Estimación: talle S / M / L por pendiente (calibración heredada del taller). */
+const EST = {
+  'p-reconciliar':'S','p-smoke-proceso':'M','p-smoke-api':'M','p-ci':'M'
+};
+
+const DATA = [
+  {
+    zona: 'El producto — código completo, evidencia cero',
+    bloques: [
+      {
+        id: 'n01', titulo: 'Tools de proceso (install/start/stop/status)', estado: 'curso',
+        sesion: 'N2', talle: 'M', issue: 2, trat: 'directo',
+        planteamiento: 'Los 4 tools que gestionan el proceso n8n: <code>npm install -g</code> con timeout, spawn detached con espera de readiness (30s contra <code>localhost:5678</code>), SIGTERM con PID trackeado. Código prolijo y tipado (<code>src/tools/install.ts</code>, 103 líneas).',
+        hallazgo: 'Verificado 2026-07-23 por lectura: manejo de errores presente (timeout, puerto ocupado, PID nulo). <b>Cero corridas registradas</b> — nadie vio estos tools funcionar de punta a punta. Edge case real: el PID vive EN MEMORIA del server MCP — si el server se reinicia, el proceso n8n queda huérfano e invisible para <code>n8n_stop</code>.',
+        metodo: [
+          'Smoke E2E contra n8n real desde un cliente MCP: install → start → status → stop, con evidencia (transcript).',
+          'Bordes: doble start, stop sin start, puerto 5678 ocupado, reinicio del server MCP con n8n corriendo (el huérfano).'
+        ],
+        pend: [
+          {id:'p-smoke-proceso', t:'Smoke E2E de los 4 tools de proceso + bordes', v:'corrida real documentada: los 4 verdes + los 4 bordes con comportamiento sano'}
+        ],
+        refs: [], prereq: ['N1']
+      },
+      {
+        id: 'n02', titulo: 'Tools de API (workflows y ejecuciones)', estado: 'curso',
+        sesion: 'N3', talle: 'M', issue: 3, trat: 'directo',
+        planteamiento: 'Los 7 tools de la API REST de n8n: list/get/create/activate/deactivate workflows + list/get executions. Cliente HTTP fino y tipado (<code>n8nClient.ts</code>, 41 líneas), API key como PARÁMETRO de tool — nada hardcodeado, verificado.',
+        hallazgo: '<b>Drift doc↔código:</b> el README promete <code>listWorkflows</code>, <code>getWorkflow</code>… (camelCase) pero los tools registrados se llaman <code>n8n_list_workflows</code>, <code>n8n_get_workflow</code>… (snake_case, verificado en <code>index.ts:68-165</code>). Quien siga el README busca tools que no existen. Cero corridas contra un n8n vivo.',
+        metodo: [
+          'Alinear nombres en README (va en N1, es fix de doc).',
+          'Corrida real contra n8n vivo con API key: los 7 tools + ramas de error (401 con key mala, n8n caído).'
+        ],
+        pend: [
+          {id:'p-smoke-api', t:'Los 7 tools de API contra n8n vivo + ramas de error', v:'corrida documentada: 7 verdes, 401 y n8n-caído manejados con mensaje claro'}
+        ],
+        refs: [], prereq: ['N2']
+      }
+    ]
+  },
+  {
+    zona: 'Distribución — npm vivo, GitHub roto',
+    bloques: [{
+      id: 'n03', titulo: 'Paquete npm + repo público', estado: 'curso',
+      sesion: 'N1', talle: 'S', issue: 1, trat: 'directo',
+      planteamiento: 'El paquete <code>@hifede/n8n-mcp-server@1.0.0</code> está VIVO en npm (verificado). Pero el repo público quedó ATRÁS: README y package.json de GitHub dicen <code>@hifede1</code> — un scope que NO existe en npm. <b>El npx documentado públicamente FALLA para cualquiera que lo siga.</b>',
+      hallazgo: 'El fix existe y es de Fede: commit local <code>20d444d</code> «fix: scope package to @hifede» — <b>SIN PUSHEAR</b> (main local ahead 1 de origin, verificado). Higiene extra: el ref local <code>origin/master</code> quedó stale apuntando a la historia vieja con <code>.obsidian</code> — que en GitHub fue PURGADA de verdad (SHA 1ec7a75 → 404, verificado hoy). La mina está desactivada en el remoto; el rastro local es cosmético.',
+      metodo: [
+        'Pushear el fix de scope (es commit del dueño, ya autorado).',
+        'Alinear los nombres de tools del README con los reales (snake_case).',
+        'Smoke del camino público: npx -y @hifede/n8n-mcp-server arranca y lista los 11 tools.',
+        'git remote prune origin (limpia el ref stale local).'
+      ],
+      pend: [
+        {id:'p-reconciliar', t:'Repo público reconciliado con la realidad de npm + smoke de npx', v:'push del fix + README con nombres reales + npx arranca listando 11 tools + ref stale purgado'}
+      ],
+      refs: [], prereq: []
+    }]
+  },
+  {
+    zona: 'Calidad — el gate corre a mano',
+    bloques: [{
+      id: 'n04', titulo: 'Gates, CI y evidencia', estado: 'curso',
+      sesion: 'N4', talle: 'M', issue: 4, trat: 'directo',
+      planteamiento: 'El único gate real es <code>tsc</code> — y pasa (corrido HOY: npm ci + build EXIT 0). Pero corre a mano: sin CI, un PR que rompa el build se mergea sin que nadie lo vea. Cero tests de ninguna clase.',
+      hallazgo: 'No hay <code>.github/workflows/</code>, no hay script de test, no hay lint. La deuda de verificación es TOTAL pero el proyecto es chico y tipado: el costo de un CI mínimo es una sesión.',
+      metodo: [
+        'GitHub Actions mínimo: npm ci + build + smoke del binario (node build/index.js arranca).',
+        'Decisión de tests: unit del n8nClient con fetch mockeado — o esqueletos vía claude-verificador cuando exista (dogfooding cruzado del taller).'
+      ],
+      pend: [
+        {id:'p-ci', t:'CI mínimo verde en GitHub Actions + decisión de tests registrada', v:'workflow corriendo en cada PR: ci + build + smoke; tests decididos (hechos o esqueleto/manual explícito)'}
+      ],
+      refs: [], prereq: ['N1']
+    }]
+  }
+];
+
+const DEBT = [
+  {t:'El install público está ROTO', d:'El README de GitHub instruye <code>npx -y @hifede1/n8n-mcp-server</code> — ese paquete NO existe en npm (el real es <code>@hifede</code>). Cualquiera que siga el README público fracasa. El fix es un commit local del dueño sin pushear (<code>20d444d</code>). Se cierra en N1 con un push.', sev:'stop'},
+  {t:'Deuda de verificación TOTAL: cero corridas, cero tests', d:'Los 11 tools están escritos y tipados pero <b>nadie los vio funcionar</b>: ni smoke de proceso, ni corrida de API contra n8n vivo, ni tests unitarios. El único gate (tsc) pasa pero solo prueba que compila. N2 y N3 son la batería.', sev:'stop'},
+  {t:'Drift doc↔código: los nombres de tools del README no existen', d:'README promete camelCase (<code>listWorkflows</code>); el código registra snake_case (<code>n8n_list_workflows</code>). Fix de doc en N1.', sev:'warn'},
+  {t:'Sin CI', d:'El gate corre a mano. Un PR que rompa el build entra sin alarma. N4.', sev:'warn'},
+  {t:'Sin ficha en el taller', d:'n8n-mcp-server no tiene plano en <code>fichas/</code> — nació ANTES del método (fue la lección fundacional del publicador). El contrato de esta auditoría es el README + el código. Si batuta va a dirigir esta obra alguna vez, necesita ficha firmada con la línea de 011 — decisión del dueño, no urgente.', sev:'warn'},
+  {t:'PID en memoria: el huérfano posible', d:'Si el server MCP se reinicia con n8n corriendo, el PID se pierde y <code>n8n_stop</code> queda ciego (proceso huérfano en 5678). Borde a ejercitar en N2; el fix (pidfile o descubrimiento por puerto) se decide con la evidencia.', sev:'warn'}
+];
+
+const PLAN = [
+  {s:'N1', o:'Reconciliar lo publicado: push del fix de scope + README real + smoke npx', b:'n03', issue:1, talle:'S', trat:'directo', pre:'— (arranca ya; el fix ya existe, es del dueño)'},
+  {s:'N2', o:'Smoke E2E de proceso: los 4 tools contra n8n real + bordes', b:'n01', issue:2, talle:'M', trat:'directo', pre:'N1 (#1)'},
+  {s:'N3', o:'Los 7 tools de API contra n8n vivo + ramas de error', b:'n02', issue:3, talle:'M', trat:'directo', pre:'N2 (#2)'},
+  {s:'N4', o:'CI mínimo + decisión de tests', b:'n04', issue:4, talle:'M', trat:'directo', pre:'N1 (#1)'}
+];
+
+/* Recorridos de un dato punta a punta. Compartidos por Stack y Tests. */
+const FLOWS = [
+  {id:'f1', t:'n8n se instala y arranca desde un cliente MCP', d:'Cliente MCP (Claude Desktop/Code) → <code>n8n_install</code> (npm -g, timeout 5min) → <code>n8n_start</code> (spawn detached + espera de readiness 30s) → <code>n8n_status</code> → <code>n8n_stop</code> (SIGTERM al PID trackeado).', b:'n01'},
+  {id:'f2', t:'Un workflow se gestiona por API', d:'Tool de API con <b>API key como parámetro</b> → <code>n8nClient</code> (fetch tipado contra <code>localhost:5678/api/v1</code>) → workflow listado/creado/activado. Errores HTTP → mensaje con status y cuerpo.', b:'n02'},
+  {id:'f3', t:'Un usuario instala por npx desde el README', d:'README público → <code>npx -y @hifede…</code> → el server arranca por stdio y expone los 11 tools. <b>HOY ROTO:</b> el README público apunta a un scope inexistente.', b:'n03'},
+  {id:'f4', t:'El build protege el paquete', d:'<code>npm ci</code> → <code>tsc</code> → <code>build/</code> → <code>prepublishOnly</code> garantiza build fresco antes de cada publish. Verificado HOY en local (EXIT 0); sin CI que lo corra por PR.', b:'n04'}
+];
+
+const STACK = [
+  {capa:'El producto (TypeScript, 515 líneas de src)', items:[
+    {n:'index.ts', rol:'Server MCP por stdio — registra los 11 tools', con:'SDK oficial @modelcontextprotocol/sdk (única dependencia)', warn:'Nombres de tools en snake_case; el README dice otra cosa (N1)'},
+    {n:'tools/install.ts', rol:'Proceso: install/start/stop/status con PID trackeado', con:'spawn detached + readiness wait', warn:'PID en memoria — huérfano posible (N2)'},
+    {n:'tools/api.ts + utils/n8nClient.ts', rol:'7 tools sobre la API REST de n8n', con:'API key por parámetro, jamás hardcodeada (verificado)', warn:'Cero corridas contra n8n vivo (N3)'}
+  ]},
+  {capa:'Distribución', items:[
+    {n:'npm: @hifede/n8n-mcp-server', rol:'El paquete público (1.0.0, VIVO — verificado hoy)', con:'npx -y … desde cualquier cliente MCP', warn:''},
+    {n:'GitHub: hifede1/n8n-mcp-server', rol:'El repo público', con:'main con 2 commits; historia .obsidian PURGADA (SHA→404 verificado)', warn:'README/package.json con scope viejo — npx documentado ROTO (N1)'},
+    {n:'Roster de cartera', rol:'Vigilancia de flota', con:'Entrada propia desde 2026-07-23', warn:''}
+  ]},
+  {capa:'Calidad', items:[
+    {n:'tsc (build)', rol:'El único gate real', con:'npm ci + npm run build — VERDE hoy en local', warn:'Corre a mano: sin CI (N4)'},
+    {n:'Tests', rol:'—', con:'—', warn:'No existen. Candidato a esqueletos vía claude-verificador (N4)'}
+  ]}
+];
+
+const DECISIONS = [
+  {id:'dn1', n:'D1', t:'Transporte stdio + SDK oficial como única dependencia', estado:'aceptada', fecha:'2026-07-17', ctx:'¿Framework propio, HTTP, o el SDK oficial pelado?', dec:'SDK oficial de MCP por stdio; cero dependencias extra.', cons:'Superficie mínima, compatible con todo cliente MCP. Reconstruida del código (no hay ADR escrito).', link:'src/index.ts'},
+  {id:'dn2', n:'D2', t:'API key como parámetro de tool, no como config del server', estado:'aceptada', fecha:'2026-07-17', ctx:'¿Dónde vive la credencial de la API de n8n?', dec:'Cada tool de API la recibe por parámetro; el server no guarda ni lee secretos.', cons:'Cero secretos en el server y en el repo (verificado). Costo: la key viaja en cada llamada del cliente. Reconstruida del código.', link:'src/utils/n8nClient.ts'},
+  {id:'dn3', n:'D3', t:'Scope npm: @hifede', estado:'aceptada', fecha:'2026-07-17', ctx:'El publish falló con @hifede1 (username real de npm: hifede).', dec:'Scope @hifede — commit «fix: scope package to @hifede» (20d444d).', cons:'El paquete vive. El commit quedó local sin pushear → el repo público miente (N1). Parte del catálogo de minas que fundó al publicador.', link:'package.json'},
+  {id:'dn4', n:'D4', t:'Historia reescrita para purgar .obsidian', estado:'aceptada', fecha:'2026-07-17', ctx:'Config personal de Obsidian entró a la historia de git en el commit inicial — la mina que fundó la ficha del publicador.', dec:'Historia reescrita: main nuevo sin la mina; la rama vieja borrada del remoto.', cons:'VERIFICADO 2026-07-23: el SHA viejo da 404 en GitHub — purga real, no cosmética. Queda un ref stale local (higiene, N1).', link:'docs/audits/'}
+];
+
+/* Pendientes que YA son un `pend` de DATA: derivadas en vivo — acá ninguna. */
+const DECISION_PENDS = [];
+
+const DECISIONS_EXTRA = [];
+
+const TESTS = {
+  gates: [
+    {n:'npm ci + tsc build', cmd:'npm ci && npm run build', est:'verde', nota:'<b>VERDE — corrido 2026-07-23 en local</b> (EXIT 0, build/ generado). Es el único gate que existe, y corre a mano.'},
+    {n:'CI (GitHub Actions)', cmd:'.github/workflows/ — no existe', est:'rojo', nota:'Sin CI: un PR que rompa el build entra sin alarma. Se crea en N4.'},
+    {n:'Smoke del camino público', cmd:'npx -y @hifede/n8n-mcp-server', est:'rojo', nota:'Jamás corrido — y el README público apunta al scope inexistente @hifede1. N1.'}
+  ],
+  flows: [
+    {id:'f1', t:'n8n se instala y arranca desde un cliente MCP', pill:'rojo', test:'Sin corrida. Se clava en N2 (smoke E2E + bordes).'},
+    {id:'f2', t:'Un workflow se gestiona por API', pill:'rojo', test:'Sin corrida contra n8n vivo. Se clava en N3 (7 tools + ramas de error).'},
+    {id:'f3', t:'Un usuario instala por npx desde el README', pill:'rojo', test:'ROTO hoy además de no corrido: el README público apunta a @hifede1 (no existe). N1.'},
+    {id:'f4', t:'El build protege el paquete', pill:'verde', test:'npm ci + tsc corridos HOY en local, EXIT 0. Falta que lo corra un CI (N4).'}
+  ],
+  contrato: [
+    {b:'n01', bt:'Tools de proceso', total:1, clavados:0, nota:'Promesa del README: los 4 tools funcionan E2E. Clavable con el smoke de N2 (incl. bordes: doble start, huérfano).'},
+    {b:'n02', bt:'Tools de API', total:1, clavados:0, nota:'Promesa del README: los 7 tools contra n8n vivo. Clavable en N3 con API key real y ramas de error.'},
+    {b:'n03', bt:'Distribución', total:1, clavados:0, nota:'Promesa del README: el npx documentado funciona. HOY ROTO (scope viejo en el repo público). N1.'},
+    {b:'n04', bt:'Calidad', total:1, clavados:0, nota:'Gate automatizado corriendo por PR. Hoy el único gate es manual.'}
+  ]
+};
+
+const REFS = [];
+
+const CHANGELOG = [
+  {f:'2026-07-23', t:'🏁 Auditoría inicial — código completo, verificación cero, el npx público roto', d:'Primera auditoría de <code>n8n-mcp-server</code>, disparada por el worklist de <b>cartera</b> (último VENCIDO de la flota). Es el primer proyecto de CÓDIGO real del taller auditado: TypeScript, 515 líneas de src, 11 tools MCP. <b>Lo bueno (verificado):</b> el gate compila (npm ci + tsc EXIT 0 hoy), el código es prolijo y tipado, la API key viaja por parámetro (cero secretos en repo), el paquete npm está VIVO (<code>@hifede/n8n-mcp-server@1.0.0</code>) y la mina histórica de <code>.obsidian</code> —la que fundó la ficha del publicador— fue PURGADA de verdad del remoto (SHA viejo → 404, verificado por API). <b>Lo roto:</b> el README público instruye <code>npx @hifede1/…</code>, scope que NO existe — el fix es un commit local del dueño sin pushear (<code>20d444d</code>, main ahead 1). <b>Lo ciego:</b> cero corridas de los 11 tools, cero tests, sin CI, y drift de nombres README↔código (camelCase vs snake_case). Plan: <b>N1</b> reconciliar lo publicado (S) → <b>N2</b> smoke de proceso → <b>N3</b> API contra n8n vivo → <b>N4</b> CI mínimo. Issues #1–#4. Calibración heredada del taller: S/M/L · directo · <b>modo orquestado</b>. Sin ficha en el taller (nació antes del método) — registrado como deuda, decisión del dueño.'}
+];
+
+/* ==========================================================================
+   RENDER — no se toca en una actualización normal de datos.
+   ========================================================================== */
+
+const LS = 'n8n-mcp-server-tracker-ticks-v1';
+const ticks = JSON.parse(localStorage.getItem(LS) || '{}');
+const save = () => localStorage.setItem(LS, JSON.stringify(ticks));
+
+const BLOQUES = DATA.flatMap(z => z.bloques);
+const byId = id => BLOQUES.find(b => b.id === id);
+const findPend = pid => {
+  for (const b of BLOQUES) { const p = b.pend.find(x => x.id === pid); if (p) return {p, b}; }
+  return null;
+};
+const allPend = BLOQUES.flatMap(b => b.pend);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const strip = s => String(s).replace(/<[^>]*>/g, '');
+
+const ESTADO_PILL = {
+  hecho: ['ok','✅ HECHO'], curso: ['warn','🟠 EN CURSO'],
+  pend: ['idle','⚪ PENDIENTE'], maqueta: ['stop','⚠️ MAQUETA']
+};
+const TRAT_PILL = { sdd: ['acc','SDD completo'], directo: ['idle','Directo'] };
+
+/* ---------- resumen ---------- */
+function renderStrip() {
+  const total = allPend.length;
+  const green = allPend.filter(p => ticks[p.id] === 2).length;
+  const amber = allPend.filter(p => ticks[p.id] === 1).length;
+  const decPend = DECISION_PENDS.filter(d => !findPend(d.pendId) || ticks[d.pendId] !== 2).length;
+  const refsFalta = REFS.filter(r => r.fresc === 'falta').length;
+
+  document.getElementById('stamp-date').textContent = LAST_AUDIT;
+  document.getElementById('strip').innerHTML = `
+    <div class="stat"><span class="n">${total - green}</span><span class="l">pendientes abiertos</span></div>
+    <div class="stat is-ok"><span class="n">${green + CLOSED_COUNT}</span><span class="l">cerrados y verificados</span></div>
+    <div class="stat is-warn"><span class="n">${amber}</span><span class="l">marcados sin verificar</span></div>
+    <div class="stat is-stop"><span class="n">${decPend}</span><span class="l">decisiones sin firmar</span></div>
+    <div class="stat is-stop"><span class="n">${refsFalta}</span><span class="l">referencias faltantes</span></div>
+    <div class="stat"><span class="n">${PLAN.length}</span><span class="l">sesiones en el plan</span></div>`;
+
+  const g = total ? (green / total) * 100 : 0;
+  const a = total ? (amber / total) * 100 : 0;
+  document.getElementById('bar').innerHTML =
+    `<i class="g" style="width:${g}%"></i><i class="a" style="width:${a}%"></i>`;
+}
+
+/* ---------- tablero ---------- */
+function renderTablero() {
+  let h = `<h2 class="sec">Bloques de obra</h2>
+    <p class="sec-note">Cada tarjeta abre su ficha de trabajo: planteamiento, método, criterios verificables y el encargo copiable.
+    <b>Primera auditoría (2026-07-23):</b> la obra está más adelantada de lo que el plano declara — los dos comandos cubren S01–S04 <b>en texto</b> — pero <b>nada está verificado</b> (5/5 criterios sin corrida) y <b>el plugin no es instalable</b> (sin entrada en el marketplace). La próxima ejecutable es <b>C1</b>: instalable de verdad + plano reconciliado.</p>`;
+
+  for (const z of DATA) {
+    h += `<div class="zone-label">${z.zona}</div><div class="grid">`;
+    for (const b of z.bloques) {
+      const abiertos = b.pend.filter(p => ticks[p.id] !== 2).length;
+      const carga = b.pend.filter(p => ticks[p.id] !== 2).map(p => EST[p.id]).join(' ');
+      const next = b.pend.find(p => ticks[p.id] !== 2);
+      const [pc, pt] = ESTADO_PILL[b.estado];
+      const [tc, tt] = TRAT_PILL[b.trat];
+      h += `<button class="card" data-ficha="${b.id}">
+        <h3>${b.titulo}</h3>
+        <div class="meta">
+          <span class="pill ${pc}">${pt}</span>
+          <span class="pill ${tc}">${tt}</span>
+          <span class="talle">${b.talle}</span>
+        </div>
+        <div class="meta">
+          <span>${abiertos} pendiente${abiertos === 1 ? '' : 's'}</span>
+          <span>·</span><span>carga ${carga || '—'}</span>
+          <span>·</span><span>issue #${b.issue}</span>
+        </div>
+        ${next ? `<div class="next"><b>Próximo:</b> ${strip(next.t)}</div>` : `<div class="next">Todo cerrado ✓</div>`}
+      </button>`;
+    }
+    h += `</div>`;
+  }
+
+  h += `<h2 class="sec">Maqueta y deuda transversal</h2>
+    <p class="sec-note">Lo que no pertenece a un bloque pero condiciona a todos. Cada ítem es candidato a pendiente en la próxima re-auditoría.</p>`;
+  for (const d of DEBT) {
+    h += `<div class="ro"><h3>${d.t}</h3>
+      <div class="ro-meta"><span class="pill ${d.sev}">${d.sev === 'stop' ? 'crítico' : 'atención'}</span></div>
+      <p>${d.d}</p></div>`;
+  }
+
+  h += `<h2 class="sec">Historial de actualizaciones</h2>`;
+  for (const c of CHANGELOG) {
+    h += `<div class="ro"><h3>${c.t}</h3>
+      <div class="ro-meta"><span class="pill acc">${c.f}</span></div>
+      <p>${c.d}</p></div>`;
+  }
+
+  h += `<h2 class="sec">Cómo se usa</h2>
+    <p class="sec-note">Abrí la ficha de un bloque → copiá el encargo → corré la sesión → decile a Claude «actualizá el tracker».
+    Los ticks son tuyos y viven en este navegador: <b class="pill warn">ámbar</b> = lo marcaste vos, sin verificar ·
+    <b class="pill ok">verde</b> = cerrado y verificado en re-auditoría. <b>El tick no es evidencia</b>: la re-auditoría
+    re-verifica en código y recién ahí pinta verde. En modo orquestado, el equivalente del ámbar es el PR esperando tu firma.</p>`;
+  document.getElementById('p-tablero').innerHTML = h;
+}
+
+/* ---------- plan de sesiones ---------- */
+function renderPlan() {
+  const total = allPend.length;
+  const green = allPend.filter(p => ticks[p.id] === 2).length;
+  const nextIdx = PLAN.findIndex(s => byId(s.b).pend.some(p => ticks[p.id] !== 2));
+
+  let h = `<h2 class="sec">Plan de sesiones</h2>
+    <p class="sec-note">Ordenadas por dependencia: cada una declara sus prerrequisitos ⛓️ y su tratamiento metodológico.
+    Estimación en talle S/M/L — mide envergadura relativa, no tiempo.
+    <b>${green} de ${total} pendientes cerrados · ${PLAN.length - (nextIdx < 0 ? PLAN.length : nextIdx)} sesiones restantes.</b></p>`;
+
+  h += `<div class="ro" style="border-color:var(--stop)">
+    <h3>⛔ 7 de 9 sesiones están bloqueadas por una decisión pendiente</h3>
+    <p class="strong">No es un defecto del plan: es el plan diciéndote la verdad sobre dónde falta firma.
+    Ninguna decisión se inventa — cada una tiene dueño (Fede) y espera acto explícito.</p></div>`;
+
+  PLAN.forEach((s, i) => {
+    const b = byId(s.b);
+    const abiertos = b.pend.filter(p => ticks[p.id] !== 2).length;
+    const [tc, tt] = TRAT_PILL[s.trat];
+    const isNext = i === nextIdx;
+    h += `<div class="ro" ${isNext ? 'style="border-color:var(--accent);border-width:2px"' : ''}>
+      <h3>${isNext ? '▶ ' : ''}${s.s} · ${s.o}</h3>
+      <div class="ro-meta">
+        ${isNext ? '<span class="pill acc">próxima ejecutable</span>' : ''}
+        <span class="pill ${tc}">${tt}</span>
+        <span class="talle">${s.talle}</span>
+        <span class="pill idle">${abiertos} abierto${abiertos === 1 ? '' : 's'}</span>
+        <a class="pill acc" href="https://github.com/${REPO}/issues/${s.issue}" target="_blank" rel="noopener">issue #${s.issue} ↗</a>
+      </div>
+      <p><b>⛓️ Prerrequisitos:</b> ${s.pre}</p>
+      <div class="btn-row">
+        <button class="btn" data-ficha="${s.b}">Abrir ficha</button>
+        <button class="btn ghost" data-copy="${s.b}">Copiar encargo</button>
+      </div></div>`;
+  });
+  document.getElementById('p-plan').innerHTML = h;
+}
+
+/* ---------- mapa ---------- */
+function renderMapa() {
+  let h = `<h2 class="sec">El loop de punta a punta</h2>
+    <p class="sec-note">Los nodos son los bloques de obra — clickealos para abrir la misma ficha del tablero.
+    Las aristas dicen <b>qué dispara cada paso y si es automático o humano</b>: ahí se ve dónde el sistema fluye solo
+    y dónde depende de que alguien se acuerde.</p><div class="flow">`;
+
+  const pasos = [
+    {b:'c01', edge:'⛔ HOY BLOQUEA · sin entrada en el marketplace no hay install; C1 lo abre'},
+    {b:'c06', edge:'🖐️ HUMANO · las ratificaciones del plano viajan en el PR de C1 — el merge de Fede ES la firma'},
+    {b:'c02', edge:'🖐️ HUMANO · el disco propone, Fede confirma — recién ahí se escribe el roster canónico'},
+    {b:'c03', edge:'automático · por cada repo del roster, la capa dura vía gh; ante la duda, VENCIDO'},
+    {b:'c04', edge:'automático · rankeo determinístico de 5 niveles; mismo roster ⇒ misma vista en toda máquina'},
+    {b:'c05', edge:''}
+  ];
+
+  pasos.forEach((p, i) => {
+    const b = byId(p.b);
+    const [pc, pt] = ESTADO_PILL[b.estado];
+    h += `<button class="fnode" data-ficha="${b.id}">
+      <span class="fn-t">${b.titulo}</span>
+      <span class="pill ${pc}">${pt}</span>
+    </button>`;
+    if (p.edge) h += `<div class="fedge"><span class="trig">${p.edge}</span></div>`;
+  });
+
+  h += `</div><h2 class="sec">Dónde el sistema depende de memoria humana</h2>
+    <p class="sec-note">Dos puntos no avanzan solos, y es <b>por diseño</b>: la confirmación del roster
+    (el disco propone, Fede dispone) y correr <code>/audit-tracker</code> donde cartera marque VENCIDO —
+    cartera lo señala pero jamás lo corre (read-only estricto). Todo lo demás fluye.</p>`;
+  document.getElementById('p-mapa').innerHTML = h;
+}
+
+/* ---------- stack ---------- */
+function renderStack() {
+  let h = `<h2 class="sec">Herramientas por capa</h2>
+    <p class="sec-note">Qué compone el sistema, qué rol cumple cada pieza y dónde hay deuda.
+    <code>cartera</code> es un lector de flota: su valor está en NO tocar nada — lee evidencia dura y la rankea.</p>`;
+
+  for (const c of STACK) {
+    h += `<div class="zone-label">${c.capa}</div><div class="tw"><table>
+      <thead><tr><th>Pieza</th><th>Rol</th><th>Conexión</th><th>Estado</th></tr></thead><tbody>`;
+    for (const it of c.items) {
+      h += `<tr><td><b>${it.n}</b></td><td>${it.rol}</td><td>${it.con}</td>
+        <td>${it.warn ? `<span class="pill warn">⚠️</span> ${it.warn}` : '<span class="pill ok">sin deuda</span>'}</td></tr>`;
+    }
+    h += `</tbody></table></div>`;
+  }
+
+  h += `<h2 class="sec">Cinco recorridos de un dato punta a punta</h2>
+    <p class="sec-note">Si entendés estos cinco recorridos, entendés el sistema. Todos existen en texto
+    y ninguno está clavado por corrida — ese es exactamente el trabajo de C3.</p>`;
+  for (const f of FLOWS) {
+    const b = byId(f.b);
+    h += `<div class="ro"><h3>${f.t}</h3>
+      <div class="ro-meta"><span class="pill idle">${b.titulo}</span></div>
+      <p>${f.d}</p></div>`;
+  }
+  document.getElementById('p-stack').innerHTML = h;
+}
+
+/* ---------- decisiones (read-only, sin data-id) ---------- */
+let dFilter = 'todas';
+function renderDecisiones() {
+  const derivadas = DECISION_PENDS
+    .map(d => { const f = findPend(d.pendId); return f && ticks[d.pendId] !== 2 ? {...d, f} : null; })
+    .filter(Boolean);
+  const extras = DECISIONS_EXTRA.filter(d => d.estado === 'pendiente');
+  const pendCount = derivadas.length + extras.length;
+
+  let h = `<h2 class="sec">Registro de decisiones</h2>
+    <p class="sec-note">El <b>porqué</b> del sistema, no el qué. Solo entra lo estructural: lo que mueve el modelo de datos,
+    el alcance o depende de un tercero. <b>${DECISIONS.length} tomadas · ${pendCount} pendientes de firma.</b>
+    Las pendientes que ya son un pendiente de obra se derivan en vivo: si se cierran en re-auditoría, desaparecen solas de acá.</p>
+    <div class="filters">
+      <button class="dchip" data-df="todas" aria-pressed="${dFilter === 'todas'}">Todas</button>
+      <button class="dchip" data-df="aceptada" aria-pressed="${dFilter === 'aceptada'}">Aceptadas (${DECISIONS.length})</button>
+      <button class="dchip" data-df="pendiente" aria-pressed="${dFilter === 'pendiente'}">Pendientes (${pendCount})</button>
+    </div>`;
+
+  if (dFilter !== 'aceptada') {
+    h += `<div class="zone-label">⏳ Pendientes de firma — dueño: Fede</div>`;
+    for (const d of derivadas) {
+      h += `<div class="ro" style="border-color:var(--stop)">
+        <h3>${d.n !== '—' ? d.n + ' — ' : ''}${d.t}</h3>
+        <div class="ro-meta">
+          <span class="pill stop">⏳ pendiente</span>
+          <span class="pill idle">desbloquea ${d.f.b.sesion}</span>
+          <a class="pill acc" href="https://github.com/${REPO}/issues/${d.f.b.issue}" target="_blank" rel="noopener">issue #${d.f.b.issue} ↗</a>
+        </div>
+        <p>${d.note}</p></div>`;
+    }
+    for (const d of extras) {
+      h += `<div class="ro" style="border-color:var(--stop)">
+        <h3>${d.n} — ${d.t}</h3>
+        <div class="ro-meta"><span class="pill stop">⏳ pendiente</span><span class="pill idle">no cuenta para el progreso</span></div>
+        <p>${d.ctx}</p><p class="strong">${d.dec}</p></div>`;
+    }
+  }
+
+  if (dFilter !== 'pendiente') {
+    h += `<div class="zone-label">✅ Tomadas</div>`;
+    for (const d of DECISIONS) {
+      h += `<div class="ro"><h3>${d.n} — ${d.t}</h3>
+        <div class="ro-meta"><span class="pill ok">aceptada</span><span class="pill idle">${d.fecha}</span></div>
+        <p>${d.ctx}</p>
+        <p class="strong"><b>Decisión:</b> ${d.dec}</p>
+        <details><summary>Consecuencias y link</summary>
+          <p>${d.cons}</p><p><code>${d.link}</code></p></details></div>`;
+    }
+  }
+  document.getElementById('p-decisiones').innerHTML = h;
+}
+
+/* ---------- tests (read-only, sin data-id) ---------- */
+let tFilter = 'todos';
+function renderTests() {
+  const rojos = TESTS.flows.filter(f => f.pill === 'rojo').length;
+  const deuda = TESTS.contrato.reduce((a, c) => a + (c.total - c.clavados), 0);
+
+  let h = `<h2 class="sec">Mapa de evidencia</h2>
+    <p class="sec-note">Herramienta de decisión, no dashboard de cobertura. La altitud es el <b>flujo</b> y el <b>criterio</b>:
+    qué recorrido está clavado por un test y qué criterio de cierre quedaría desprotegido mañana.
+    <b>${rojos} de ${TESTS.flows.length} recorridos sin test · ${deuda} criterios en deuda de verificación.</b></p>
+
+    <div class="ro" style="border-color:var(--stop)">
+      <h3>⚠️ El proyecto entero está en deuda de verificación</h3>
+      <p class="strong">Al ser markdown puro no hay tests unitarios posibles (<code>decisiones/006</code>): el único mecanismo
+      es la <b>corrida sembrada</b>, un repo de prueba preparado con la condición que se quiere probar.
+      Hoy no existe ninguna. Eso hace de <b>S09 una sesión estructural, no un extra</b> —
+      hasta que corra, cada criterio «cerrado» puede romperse sin que nadie se entere.</p></div>
+
+    <div class="filters">
+      <button class="tchip" data-tf="todos" aria-pressed="${tFilter === 'todos'}">Todo</button>
+      <button class="tchip" data-tf="gates" aria-pressed="${tFilter === 'gates'}">Gates</button>
+      <button class="tchip" data-tf="flujos" aria-pressed="${tFilter === 'flujos'}">Flujos</button>
+      <button class="tchip" data-tf="criterios" aria-pressed="${tFilter === 'criterios'}">Criterios ↔ tests</button>
+    </div>`;
+
+  if (tFilter === 'todos' || tFilter === 'gates') {
+    h += `<h2 class="sec">Gates reales</h2>
+      <p class="sec-note">Snapshot de la última re-auditoría (${LAST_AUDIT}), no estado vivo.</p>
+      <div class="tw"><table><thead><tr><th>Gate</th><th>Comando</th><th>Estado</th><th>Nota</th></tr></thead><tbody>`;
+    for (const g of TESTS.gates) {
+      const pill = g.est === 'rojo' ? '<span class="pill stop">🔴 rojo</span>'
+                 : g.est === 'verde' ? '<span class="pill ok">🟢 verde</span>'
+                 : '<span class="pill idle">no aplica</span>';
+      h += `<tr><td><b>${g.n}</b></td><td><code>${g.cmd}</code></td><td>${pill}</td><td>${g.nota}</td></tr>`;
+    }
+    h += `</tbody></table></div>`;
+  }
+
+  if (tFilter === 'todos' || tFilter === 'flujos') {
+    h += `<h2 class="sec">Cobertura a altitud de flujo</h2>
+      <p class="sec-note">Los mismos siete recorridos de la pestaña Stack, con su evidencia.</p>`;
+    for (const f of TESTS.flows) {
+      const fp = f.pill === 'verde' ? '<span class="pill ok">🟢 clavado por test</span>'
+               : f.pill === 'ambar' ? '<span class="pill warn">🟠 solo camino feliz</span>'
+               : '<span class="pill stop">🔴 sin test</span>';
+      h += `<div class="ro"><h3>${f.t}</h3>
+        <div class="ro-meta">${fp}</div>
+        <p>${f.test}</p></div>`;
+    }
+  }
+
+  if (tFilter === 'todos' || tFilter === 'criterios') {
+    h += `<h2 class="sec">Contrato criterios ↔ tests</h2>
+      <p class="sec-note">Criterio sin test que lo proteja = <b>deuda de verificación</b>: puede estar hecho hoy y romperse mañana.</p>
+      <div class="tw"><table><thead><tr><th>Bloque</th><th>Criterios</th><th>Clavados</th><th>Deuda</th></tr></thead><tbody>`;
+    for (const c of TESTS.contrato) {
+      h += `<tr><td><b>${c.bt}</b></td><td>${c.total}</td>
+        <td>${c.clavados}</td>
+        <td><span class="pill stop">${c.total - c.clavados} sin test</span> ${c.nota}</td></tr>`;
+    }
+    h += `</tbody></table></div>`;
+  }
+  document.getElementById('p-tests').innerHTML = h;
+}
+
+/* ---------- referencias (read-only, sin data-id) ---------- */
+let rFilter = 'todas';
+function renderRefs() {
+  const falta = REFS.filter(r => r.fresc === 'falta').length;
+  let h = `<h2 class="sec">Catálogo de referencias</h2>
+    <p class="sec-note">El <b>CÓMO</b> técnico destilado: patrones, tradeoffs, citas y fecha.
+    Las fichas solo las <b>linkean</b> — pero además se cargan <b>por trigger</b>: el ejecutor lee toda referencia
+    cuyos triggers matcheen su encargo, aunque la ficha no la linkee.
+    <b>${REFS.length - falta} generadas · ${falta} faltan</b>, y cada una hay que generarla ANTES del encargo que la necesita.</p>
+
+    <div class="ro" style="border-color:var(--ok)">
+      <h3>🟢 S01 saldó 2 de las 5 — quedan ${falta}</h3>
+      <p class="strong">El 2026-07-19, el encargo de S01 generó <code>plugins-claude-code.md</code> y
+      <code>doc-arquitecto.md</code> antes de tocar nada, como manda el protocolo. La primera trajo el gotcha
+      que explica por qué el install no rompe: en <code>git-subdir</code> la url debe ser HTTPS completa.
+      <b>Se confirmó en la corrida real</b> (<code>SSH not configured, cloning via HTTPS</code>).</p>
+      <p><code>docs/business/</code> no aplica a este proyecto y está declarado así explícitamente:
+      <code>cartera</code> es herramienta interna del taller, sin mercado ni usuarios externos.</p></div>
+
+    <div class="filters">
+      <button class="rchip" data-rf="todas" aria-pressed="${rFilter === 'todas'}">Todas</button>
+      <button class="rchip" data-rf="falta" aria-pressed="${rFilter === 'falta'}">🔴 Faltantes (${falta})</button>
+      <button class="rchip" data-rf="volatil" aria-pressed="${rFilter === 'volatil'}">Territorio volátil</button>
+    </div>`;
+
+  const vis = REFS.filter(r => rFilter === 'todas' || (rFilter === 'falta' && r.fresc === 'falta') || (rFilter === 'volatil' && r.volatil));
+  const FRESC = {
+    falta:  ['stop', '🔴 faltante'],
+    refresco: ['warn', '🟠 pendiente de refresco'],
+    fresca: ['ok', '🟢 fresca']
+  };
+  for (const r of vis) {
+    const [fc, ft] = FRESC[r.fresc] || FRESC.falta;
+    h += `<div class="ro" style="border-color:var(--${fc === 'ok' ? 'ok' : fc === 'warn' ? 'warn' : 'stop'})">
+      <h3>${r.t}</h3>
+      <div class="ro-meta">
+        <span class="pill ${fc}">${ft}</span>
+        ${r.volatil ? '<span class="pill warn">territorio volátil · revalidar cada 3 meses</span>' : ''}
+        <span class="pill idle">${r.fecha || 'sin fecha'}</span>
+      </div>
+      <p>${r.q}</p>
+      <p><b>${r.fresc === 'fresca' ? 'Origen:' : 'Generar antes de:'}</b> ${r.antes}</p>
+      <p><b>La usan:</b> ${r.usa.join(' · ')}</p>
+      <p><b>Triggers:</b> ${r.trig.map(t => `<code>${t}</code>`).join(' ')}</p>
+      <p><code>${r.path}</code></p></div>`;
+  }
+  document.getElementById('p-refs').innerHTML = h;
+}
+
+/* ---------- ficha ---------- */
+function encargoText(b) {
+  const abiertos = b.pend.filter(p => ticks[p.id] !== 2);
+  const L = [];
+  L.push(`Encargo: ${b.titulo} — proyecto cartera (${REPO})`);
+  L.push(`Issue: https://github.com/${REPO}/issues/${b.issue}`);
+  L.push(`Tratamiento: ${b.trat === 'sdd' ? 'SDD completo (/sdd-new)' : 'directo'} · Talle ${b.talle}`);
+  L.push('');
+  L.push('## Planteamiento');
+  L.push(strip(b.planteamiento));
+  if (b.hallazgo) { L.push(''); L.push('## Hallazgo de la última auditoría'); L.push(strip(b.hallazgo)); }
+  if (b.gotcha) { L.push(''); L.push('## Gotcha conocido'); L.push(strip(b.gotcha)); }
+  L.push('');
+  L.push('## Método');
+  b.metodo.forEach((m, i) => L.push(`${i + 1}. ${strip(m)}`));
+  if (b.code) { L.push(''); L.push('```'); L.push(b.code); L.push('```'); }
+  L.push('');
+  L.push('## Criterios de cierre abiertos');
+  abiertos.forEach(p => L.push(`- [ ] ${strip(p.t)} (verificación: ${strip(p.v)})`));
+  L.push('');
+  L.push('## Referencias');
+  if (b.refs.length) b.refs.forEach(r => {
+    const R = REFS.find(x => x.id === r);
+    L.push(`- 🔴 docs/references/${r}.md — FALTA, generar antes de arrancar${R && R.volatil ? ' (territorio volátil)' : ''}`);
+  }); else L.push('- (ninguna)');
+  L.push('');
+  L.push('## Prerrequisitos');
+  if (b.prereq.length) b.prereq.forEach(p => L.push(`- ${p}`)); else L.push('- Ninguno');
+  L.push('');
+  L.push('Reglas: las decisiones de negocio NO se inventan — si una está pendiente, frená y pedila.');
+  L.push('Criterio de HECHO: funciona de punta a punta + resiste errores y bordes + verificado.');
+  return L.join('\n');
+}
+
+function openFicha(id) {
+  const b = byId(id);
+  if (!b) return;
+  const [pc, pt] = ESTADO_PILL[b.estado];
+  const [tc, tt] = TRAT_PILL[b.trat];
+
+  let h = `<button class="fx-close" id="fx-x" aria-label="Cerrar">×</button>
+    <h3>${b.titulo}</h3>
+    <div class="fx-meta">
+      <span class="pill ${pc}">${pt}</span>
+      <span class="pill ${tc}">${tt}</span>
+      <span class="talle">${b.talle}</span>
+      <a class="pill acc" href="https://github.com/${REPO}/issues/${b.issue}" target="_blank" rel="noopener">issue #${b.issue} ↗</a>
+    </div>
+    <h4>🎯 Planteamiento</h4><p>${b.planteamiento}</p>`;
+
+  if (b.hallazgo) h += `<h4>🔍 Hallazgo de la auditoría ${LAST_AUDIT}</h4><p>${b.hallazgo}</p>`;
+  h += `<h4>🛠️ Cómo trabajarlo</h4><ol>${b.metodo.map(m => `<li>${m}</li>`).join('')}</ol>`;
+  if (b.code) h += `<pre>${esc(b.code)}</pre>`;
+  if (b.gotcha) h += `<h4>⚠️ Gotcha conocido</h4><p>${b.gotcha}</p>`;
+
+  h += `<h4>✅ Criterios de cierre</h4><ul class="crit">`;
+  for (const p of b.pend) {
+    const st = ticks[p.id] || 0;
+    h += `<li class="${st === 2 ? 'green' : st === 1 ? 'amber' : ''}">
+      <input type="checkbox" id="ck-${p.id}" data-id="${p.id}" ${st ? 'checked' : ''} ${st === 2 ? 'disabled' : ''}>
+      <label for="ck-${p.id}">${p.t} <span class="talle">${EST[p.id] || '?'}</span>
+        <span class="verif">Verificación: ${p.v}</span></label></li>`;
+  }
+  h += `</ul>`;
+
+  h += `<h4>📚 Referencias</h4>`;
+  if (b.refs.length) {
+    h += `<ul>`;
+    for (const r of b.refs) {
+      const R = REFS.find(x => x.id === r);
+      h += `<li>🔴 <code>docs/references/${r}.md</code> — <b>falta, generar antes de arrancar</b>${R && R.volatil ? ' · territorio volátil' : ''}</li>`;
+    }
+    h += `</ul>`;
+  } else h += `<p>Ninguna.</p>`;
+
+  h += `<h4>⛓️ Prerrequisitos</h4>`;
+  h += b.prereq.length ? `<ul>${b.prereq.map(p => `<li>${p}</li>`).join('')}</ul>` : `<p>Ninguno.</p>`;
+
+  h += `<div class="btn-row">
+    <button class="btn" data-copy="${b.id}">Copiar encargo</button>
+    <a class="btn ghost" href="https://github.com/${REPO}/issues/${b.issue}" target="_blank" rel="noopener">Ver issue #${b.issue}</a>
+    <button class="btn ghost" id="fx-x2">Cerrar</button>
+  </div>`;
+
+  document.getElementById('fx-body').innerHTML = h;
+  document.getElementById('fx').showModal();
+}
+
+/* ---------- tabs ---------- */
+const TABS = [
+  {id:'tablero', l:'📋 Tablero', r:renderTablero},
+  {id:'plan', l:'🗓️ Plan de sesiones', r:renderPlan},
+  {id:'mapa', l:'🗺️ Mapa', r:renderMapa},
+  {id:'stack', l:'🔧 Stack', r:renderStack},
+  {id:'decisiones', l:'⚖️ Decisiones', r:renderDecisiones},
+  {id:'tests', l:'🧪 Tests', r:renderTests},
+  {id:'refs', l:'📚 Referencias', r:renderRefs}
+];
+
+function showTab(id) {
+  const t = TABS.find(x => x.id === id) || TABS[0];
+  TABS.forEach(x => {
+    document.getElementById('p-' + x.id).classList.toggle('on', x.id === t.id);
+    document.getElementById('tb-' + x.id).setAttribute('aria-selected', String(x.id === t.id));
+  });
+  t.r();
+  if (location.hash.slice(1) !== t.id) history.replaceState(null, '', '#' + t.id);
+}
+
+document.getElementById('tabs').innerHTML = TABS
+  .map(t => `<button role="tab" id="tb-${t.id}" data-tab="${t.id}" aria-selected="false">${t.l}</button>`)
+  .join('');
+
+/* ---------- eventos ---------- */
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  setTimeout(() => el.classList.remove('on'), 1800);
+}
+
+document.addEventListener('click', ev => {
+  const tab = ev.target.closest('[data-tab]');
+  if (tab) { showTab(tab.dataset.tab); return; }
+
+  const fic = ev.target.closest('[data-ficha]');
+  if (fic) { openFicha(fic.dataset.ficha); return; }
+
+  const cp = ev.target.closest('[data-copy]');
+  if (cp) {
+    const b = byId(cp.dataset.copy);
+    navigator.clipboard.writeText(encargoText(b))
+      .then(() => toast('Encargo copiado ✓'))
+      .catch(() => toast('No se pudo copiar'));
+    return;
+  }
+
+  if (ev.target.id === 'fx-x' || ev.target.id === 'fx-x2') {
+    document.getElementById('fx').close();
+    return;
+  }
+
+  const df = ev.target.closest('[data-df]');
+  if (df) { dFilter = df.dataset.df; renderDecisiones(); return; }
+  const tf = ev.target.closest('[data-tf]');
+  if (tf) { tFilter = tf.dataset.tf; renderTests(); return; }
+  const rf = ev.target.closest('[data-rf]');
+  if (rf) { rFilter = rf.dataset.rf; renderRefs(); return; }
+});
+
+document.addEventListener('change', ev => {
+  const ck = ev.target.closest('input[data-id]');
+  if (!ck) return;
+  const id = ck.dataset.id;
+  if (ticks[id] === 2) return;              // verde no se toca desde la UI
+  if (ck.checked) { ticks[id] = 1; } else { delete ticks[id]; }
+  save();
+  ck.closest('li').classList.toggle('amber', ck.checked);
+  renderStrip();
+  toast(ck.checked ? 'Marcado — queda ámbar hasta la re-auditoría' : 'Desmarcado');
+});
+
+window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
+
+renderStrip();
+showTab(location.hash.slice(1) || 'tablero');
+</script>
