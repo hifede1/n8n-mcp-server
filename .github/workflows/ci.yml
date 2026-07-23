@@ -1,0 +1,27 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci
+      - name: Build (tsc)
+        run: npm run build
+      - name: Tests unitarios (node:test)
+        run: npm test
+      - name: Smoke del binario (handshake MCP por stdio)
+        run: |
+          RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci-smoke","version":"1.0"}}}\n' | timeout 20 node build/index.js | head -1)
+          echo "$RESP"
+          echo "$RESP" | grep -q '"serverInfo"' || { echo "El server no respondió el handshake"; exit 1; }
