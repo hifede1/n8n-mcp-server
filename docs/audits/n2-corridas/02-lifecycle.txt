@@ -1,0 +1,18 @@
+23:35:35 [stderr] n8n MCP Server corriendo en stdio
+23:35:35 init OK: {"name":"n8n-manager","version":"1.0.0"}
+23:35:35 → tools/call n8n_status
+23:35:35 ← n8n_status (0.0s) isError=false: n8n NO está corriendo en http://localhost:5678.
+23:35:35 → tools/call n8n_stop
+23:35:35 ← n8n_stop (0.0s) isError=false: n8n no está corriendo (no hay PID registrado).
+23:35:35 → tools/call n8n_start
+23:35:35 [stderr] (node:26836) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+23:35:39 ← n8n_start (4.1s) isError=false: n8n iniciado con PID 26837. Disponible en http://localhost:5678
+23:35:39 → tools/call n8n_status
+23:35:39 ← n8n_status (0.2s) isError=false: n8n está corriendo (PID 26837): http://localhost:5678 — respondió con 404
+23:35:39 → tools/call n8n_start
+23:35:39 ← n8n_start (0.0s) isError=false: n8n ya está corriendo con PID 26837 en http://localhost:5678
+23:35:39 → tools/call n8n_stop
+23:35:39 ← n8n_stop (0.0s) isError=false: n8n detenido (PID 26837).
+23:35:41 → tools/call n8n_status
+23:35:41 ← n8n_status (0.0s) isError=false: n8n NO está corriendo en http://localhost:5678.

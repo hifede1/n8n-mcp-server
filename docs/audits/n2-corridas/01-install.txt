@@ -1,0 +1,4 @@
+23:33:37 [stderr] n8n MCP Server corriendo en stdio
+23:33:37 init OK: {"name":"n8n-manager","version":"1.0.0"}
+23:33:37 → tools/call n8n_install
+23:35:26 ← n8n_install (109.0s) isError=false: n8n instalado correctamente. ⏎  ⏎ added 836 packages, removed 850 packages, and changed 1325 packages in 2m ⏎  ⏎ 346 packages are looking for funding ⏎   run `npm fund` for details ⏎  ⏎ Warnings: npm warn ERESOLVE overriding peer dependency ⏎ npm warn ERESOLVE overriding peer dependency ⏎ npm warn While resolving: @a
